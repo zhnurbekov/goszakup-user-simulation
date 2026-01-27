@@ -79,18 +79,84 @@ func (s *Service) TypeText(text string, delayMs int) error {
 		}
 	}
 	
-	// На Windows пробуем несколько методов
+	// На Windows используем метод через буфер обмена (Ctrl+V) - более надежно чем PasteStr
 	if runtime.GOOS == "windows" {
-		s.logger.Info("Windows: начинаем ввод текста", zap.String("method", "PasteStr_first"))
+		s.logger.Info("Windows: начинаем ввод текста через буфер обмена", zap.String("method", "Clipboard+Ctrl+V"))
 		
-		// Сначала пробуем PasteStr (самый надежный метод на Windows, использует буфер обмена)
-		robotgo.PasteStr(text)
+		// Сохраняем текущий буфер обмена
+		oldClip, err := robotgo.ReadAll()
+		if err != nil {
+			s.logger.Debug("Не удалось прочитать буфер обмена (не критично)", zap.Error(err))
+		}
+		
+		// Копируем текст в буфер обмена
+		if err := robotgo.WriteAll(text); err != nil {
+			s.logger.Error("Ошибка записи в буфер обмена", zap.Error(err))
+			// Fallback на посимвольный ввод если буфер обмена не работает
+			s.logger.Info("Fallback: используем посимвольный ввод")
+			return s.typeTextCharByChar(text, delayMs)
+		}
+		
+		time.Sleep(100 * time.Millisecond) // Даем время на копирование
+		
+		// Вставляем через Ctrl+V на Windows
+		robotgo.KeyToggle("ctrl", "down")
+		time.Sleep(50 * time.Millisecond)
+		robotgo.KeyTap("v")
+		time.Sleep(50 * time.Millisecond)
+		robotgo.KeyToggle("ctrl", "up")
 		time.Sleep(200 * time.Millisecond) // Даем время на вставку
-		s.logger.Info("✅ Текст введен через PasteStr (Windows)", zap.String("text", text))
+		
+		// Восстанавливаем старый буфер обмена (если был)
+		if oldClip != "" {
+			time.Sleep(100 * time.Millisecond)
+			robotgo.WriteAll(oldClip)
+		}
+		
+		s.logger.Info("✅ Текст введен через буфер обмена (Windows)", zap.String("text", text))
 		return nil
 	}
 	
-	// Для macOS и Linux используем стандартный метод
+	// На macOS используем метод через буфер обмена (более надежно, чем TypeStr)
+	if runtime.GOOS == "darwin" {
+		s.logger.Info("macOS: начинаем ввод текста через буфер обмена", zap.String("method", "Clipboard+Cmd+V"))
+		
+		// Сохраняем текущий буфер обмена
+		oldClip, err := robotgo.ReadAll()
+		if err != nil {
+			s.logger.Debug("Не удалось прочитать буфер обмена (не критично)", zap.Error(err))
+		}
+		
+		// Копируем текст в буфер обмена
+		if err := robotgo.WriteAll(text); err != nil {
+			s.logger.Error("Ошибка записи в буфер обмена", zap.Error(err))
+			// Fallback на TypeStr если буфер обмена не работает
+			s.logger.Info("Fallback: используем TypeStr")
+			robotgo.TypeStr(text, delayMs)
+			return nil
+		}
+		
+		time.Sleep(100 * time.Millisecond) // Даем время на копирование
+		
+		// Вставляем через Cmd+V на macOS
+		robotgo.KeyToggle("command", "down")
+		time.Sleep(50 * time.Millisecond)
+		robotgo.KeyTap("v")
+		time.Sleep(50 * time.Millisecond)
+		robotgo.KeyToggle("command", "up")
+		time.Sleep(200 * time.Millisecond) // Даем время на вставку
+		
+		// Восстанавливаем старый буфер обмена (если был)
+		if oldClip != "" {
+			time.Sleep(100 * time.Millisecond)
+			robotgo.WriteAll(oldClip)
+		}
+		
+		s.logger.Info("✅ Текст введен через буфер обмена (macOS)", zap.String("text", text))
+		return nil
+	}
+	
+	// Для Linux используем стандартный метод
 	robotgo.TypeStr(text, delayMs)
 	s.logger.Info("Текст введен через TypeStr", zap.String("text", text))
 	
@@ -358,14 +424,22 @@ func (s *Service) InputAtCoordinates(x, y int, text string, options *InputOption
 		if err := s.ClearInput(); err != nil {
 			return fmt.Errorf("ошибка очистки: %w", err)
 		}
-		// Задержка после очистки
-		clearDelay := 100 * time.Millisecond
+		// Задержка после очистки (увеличена для надежности)
+		clearDelay := 200 * time.Millisecond
 		if runtime.GOOS == "windows" {
-			clearDelay = 150 * time.Millisecond
+			clearDelay = 300 * time.Millisecond // Больше задержка на Windows
 		}
 		time.Sleep(clearDelay)
 		s.logger.Debug("Поле очищено, готовы к вводу")
 	}
+	
+	// Дополнительная задержка перед вводом текста для гарантии фокуса
+	preTypeDelay := 100 * time.Millisecond
+	if runtime.GOOS == "windows" {
+		preTypeDelay = 200 * time.Millisecond
+	}
+	time.Sleep(preTypeDelay)
+	s.logger.Debug("Начинаем ввод текста")
 	
 	// Вводим текст
 	if err := s.TypeText(text, options.TypeDelay); err != nil {
@@ -419,14 +493,22 @@ func (s *Service) FillInputAndClickButton(inputX, inputY int, text string, butto
 		if err := s.ClearInput(); err != nil {
 			return fmt.Errorf("ошибка очистки: %w", err)
 		}
-		// Задержка после очистки
-		clearDelay := 100 * time.Millisecond
+		// Задержка после очистки (увеличена для надежности)
+		clearDelay := 200 * time.Millisecond
 		if runtime.GOOS == "windows" {
-			clearDelay = 150 * time.Millisecond
+			clearDelay = 300 * time.Millisecond // Больше задержка на Windows
 		}
 		time.Sleep(clearDelay)
 		s.logger.Debug("Поле очищено, готовы к вводу")
 	}
+
+	// Дополнительная задержка перед вводом текста для гарантии фокуса
+	preTypeDelay := 100 * time.Millisecond
+	if runtime.GOOS == "windows" {
+		preTypeDelay = 200 * time.Millisecond
+	}
+	time.Sleep(preTypeDelay)
+	s.logger.Debug("Начинаем ввод текста")
 
 	// Шаг 4: Вводим текст
 	if err := s.TypeText(text, options.TypeDelay); err != nil {
