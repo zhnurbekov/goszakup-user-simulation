@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"goszakup-automation/internal/input"
 
@@ -252,6 +253,9 @@ func (h *Handler) FillInputAndClick(c *gin.Context) {
 		})
 		return
 	}
+
+	// Задержка на 5 секунд в начале обработки
+	time.Sleep(5 * time.Second)
 
 	if req.Button == "" {
 		req.Button = "left"

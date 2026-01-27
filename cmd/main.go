@@ -77,7 +77,7 @@ func main() {
 	// Запуск сервера
 	port := cfg.Port
 	if port == "" {
-		port = "3000"
+		port = "3001"
 	}
 
 	srv := &http.Server{
