@@ -198,7 +198,8 @@ func (s *Service) typeTextCharByChar(text string, delayMs int) error {
 			if runtime.GOOS == "windows" {
 				// Используем UnicodeType для прямого ввода символов через события клавиатуры
 				// Это работает в модальных окнах, где TypeStr может не работать
-				robotgo.UnicodeType(char)
+				// Преобразуем rune в uint32 для UnicodeType
+				robotgo.UnicodeType(uint32(char))
 				time.Sleep(50 * time.Millisecond) // Увеличена задержка после каждого символа для модальных окон
 				s.logger.Debug("Введен символ через UnicodeType", zap.String("char", charStr), zap.Int("unicode", int(char)), zap.Int("position", i+1), zap.Int("total", len(text)))
 			} else if runtime.GOOS == "darwin" {
