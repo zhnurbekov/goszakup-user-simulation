@@ -293,6 +293,10 @@ func (s *Service) TypeTextAt(x, y int, text string, delayMs int) error {
 
 // GetMousePosition возвращает текущую позицию мыши
 func (s *Service) GetMousePosition() (int, int) {
+	// Задержка 3 секунды перед определением позиции мыши
+	s.logger.Debug("Ожидание 3 секунды перед определением позиции мыши")
+	time.Sleep(3 * time.Second)
+	
 	x, y := robotgo.GetMousePos()
 	s.logger.Debug("Текущая позиция мыши", zap.Int("x", x), zap.Int("y", y))
 	return x, y
