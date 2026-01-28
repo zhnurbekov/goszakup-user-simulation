@@ -81,10 +81,19 @@ func (s *Service) TypeText(text string, delayMs int) error {
 	
 	// На Windows используем посимвольный ввод через клавиатуру (для модальных окон)
 	if runtime.GOOS == "windows" {
-		s.logger.Info("Windows: начинаем посимвольный ввод текста через клавиатуру", zap.String("method", "CharByChar"))
+		s.logger.Info("Windows: начинаем посимвольный ввод текста через клавиатуру", 
+			zap.String("method", "UnicodeType"),
+			zap.String("text", text),
+			zap.Int("text_length", len(text)),
+			zap.Int("delay_ms", delayMs))
 		
 		// Используем посимвольный ввод для Windows (работает в модальных окнах)
-		return s.typeTextCharByChar(text, delayMs)
+		if err := s.typeTextCharByChar(text, delayMs); err != nil {
+			s.logger.Error("Ошибка при посимвольном вводе на Windows", zap.Error(err))
+			return err
+		}
+		s.logger.Info("✅ Посимвольный ввод завершен на Windows")
+		return nil
 	}
 	
 	// На macOS используем посимвольный ввод (без буфера обмена)
@@ -165,7 +174,7 @@ func (s *Service) typeTextCharByChar(text string, delayMs int) error {
 		if runtime.GOOS == "darwin" {
 			delayMs = 50 // Задержка для macOS
 		} else if runtime.GOOS == "windows" {
-			delayMs = 80 // Увеличена задержка для Windows (для модальных окон)
+			delayMs = 100 // Увеличена задержка для Windows (для модальных окон)
 		} else {
 			delayMs = 50
 		}
@@ -185,27 +194,35 @@ func (s *Service) typeTextCharByChar(text string, delayMs int) error {
 			robotgo.KeyTap("space")
 			s.logger.Debug("Введен символ: Space")
 		} else {
-			// Для Windows и macOS используем TypeStr с задержкой для каждого символа
-			if runtime.GOOS == "darwin" {
+			// Для Windows используем Unicode события напрямую (работает в модальных окнах)
+			if runtime.GOOS == "windows" {
+				// Используем UnicodeType для прямого ввода символов через события клавиатуры
+				// Это работает в модальных окнах, где TypeStr может не работать
+				robotgo.UnicodeType(char)
+				time.Sleep(50 * time.Millisecond) // Увеличена задержка после каждого символа для модальных окон
+				s.logger.Debug("Введен символ через UnicodeType", zap.String("char", charStr), zap.Int("unicode", int(char)), zap.Int("position", i+1), zap.Int("total", len(text)))
+			} else if runtime.GOOS == "darwin" {
 				// Используем TypeStr с небольшой задержкой между символами
 				robotgo.TypeStr(charStr, 10) // Задержка 10мс для каждого символа
-			} else if runtime.GOOS == "windows" {
-				// Для Windows используем TypeStr с задержкой для модальных окон
-				robotgo.TypeStr(charStr, 20) // Задержка 20мс для каждого символа на Windows
+				s.logger.Debug("Введен символ", zap.String("char", charStr), zap.Int("position", i+1), zap.Int("total", len(text)))
 			} else {
 				// Для других ОС используем TypeStr
 				robotgo.TypeStr(charStr, 0)
+				s.logger.Debug("Введен символ", zap.String("char", charStr), zap.Int("position", i+1), zap.Int("total", len(text)))
 			}
-			s.logger.Debug("Введен символ", zap.String("char", charStr), zap.Int("position", i+1), zap.Int("total", len(text)))
 		}
 		
 		// Задержка между символами
-		// Для macOS делаем задержку даже после последнего символа для надежности
+		// Для Windows и macOS делаем задержку даже после последнего символа для надежности
 		if i < len(text)-1 {
 			time.Sleep(time.Duration(delayMs) * time.Millisecond)
-		} else if runtime.GOOS == "darwin" {
-			// Небольшая задержка после последнего символа на macOS
-			time.Sleep(100 * time.Millisecond)
+		} else {
+			// Дополнительная задержка после последнего символа
+			if runtime.GOOS == "darwin" {
+				time.Sleep(100 * time.Millisecond)
+			} else if runtime.GOOS == "windows" {
+				time.Sleep(150 * time.Millisecond) // Задержка для Windows после последнего символа
+			}
 		}
 	}
 	
@@ -490,11 +507,11 @@ func (s *Service) FillInputAndClickButton(inputX, inputY int, text string, butto
 	// Дополнительная задержка перед вводом текста для гарантии фокуса (увеличена для Windows и macOS)
 	preTypeDelay := 100 * time.Millisecond
 	if runtime.GOOS == "windows" {
-		preTypeDelay = 500 * time.Millisecond // Увеличена задержка для Windows (для модальных окон)
+		preTypeDelay = 800 * time.Millisecond // Еще больше задержка для Windows (для модальных окон)
 		// Дополнительный клик на Windows для гарантии фокуса в модальном окне
 		s.logger.Debug("Дополнительный клик для гарантии фокуса на Windows (модальное окно)")
 		robotgo.MouseClick("left", false)
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond) // Увеличена задержка после клика
 	} else if runtime.GOOS == "darwin" {
 		preTypeDelay = 500 * time.Millisecond // Еще больше задержка на macOS перед вводом
 		// Дополнительный клик на macOS для гарантии фокуса
