@@ -79,80 +79,28 @@ func (s *Service) TypeText(text string, delayMs int) error {
 		}
 	}
 	
-	// На Windows используем метод через буфер обмена (Ctrl+V) - более надежно чем PasteStr
+	// На Windows используем посимвольный ввод через клавиатуру (для модальных окон)
 	if runtime.GOOS == "windows" {
-		s.logger.Info("Windows: начинаем ввод текста через буфер обмена", zap.String("method", "Clipboard+Ctrl+V"))
+		s.logger.Info("Windows: начинаем посимвольный ввод текста через клавиатуру", zap.String("method", "CharByChar"))
 		
-		// Сохраняем текущий буфер обмена
-		oldClip, err := robotgo.ReadAll()
-		if err != nil {
-			s.logger.Debug("Не удалось прочитать буфер обмена (не критично)", zap.Error(err))
-		}
-		
-		// Копируем текст в буфер обмена
-		if err := robotgo.WriteAll(text); err != nil {
-			s.logger.Error("Ошибка записи в буфер обмена", zap.Error(err))
-			// Fallback на посимвольный ввод если буфер обмена не работает
-			s.logger.Info("Fallback: используем посимвольный ввод")
-			return s.typeTextCharByChar(text, delayMs)
-		}
-		
-		time.Sleep(100 * time.Millisecond) // Даем время на копирование
-		
-		// Вставляем через Ctrl+V на Windows
-		robotgo.KeyToggle("ctrl", "down")
-		time.Sleep(50 * time.Millisecond)
-		robotgo.KeyTap("v")
-		time.Sleep(50 * time.Millisecond)
-		robotgo.KeyToggle("ctrl", "up")
-		time.Sleep(200 * time.Millisecond) // Даем время на вставку
-		
-		// Восстанавливаем старый буфер обмена (если был)
-		if oldClip != "" {
-			time.Sleep(100 * time.Millisecond)
-			robotgo.WriteAll(oldClip)
-		}
-		
-		s.logger.Info("✅ Текст введен через буфер обмена (Windows)", zap.String("text", text))
-		return nil
+		// Используем посимвольный ввод для Windows (работает в модальных окнах)
+		return s.typeTextCharByChar(text, delayMs)
 	}
 	
-	// На macOS используем метод через буфер обмена (более надежно, чем TypeStr)
+	// На macOS используем посимвольный ввод (без буфера обмена)
 	if runtime.GOOS == "darwin" {
-		s.logger.Info("macOS: начинаем ввод текста через буфер обмена", zap.String("method", "Clipboard+Cmd+V"))
+		s.logger.Info("macOS: начинаем посимвольный ввод текста", 
+			zap.String("method", "CharByChar"),
+			zap.String("text", text),
+			zap.Int("text_length", len(text)),
+			zap.Int("delay_ms", delayMs))
 		
-		// Сохраняем текущий буфер обмена
-		oldClip, err := robotgo.ReadAll()
-		if err != nil {
-			s.logger.Debug("Не удалось прочитать буфер обмена (не критично)", zap.Error(err))
+		// Используем посимвольный ввод для macOS
+		if err := s.typeTextCharByChar(text, delayMs); err != nil {
+			s.logger.Error("Ошибка при посимвольном вводе на macOS", zap.Error(err))
+			return err
 		}
-		
-		// Копируем текст в буфер обмена
-		if err := robotgo.WriteAll(text); err != nil {
-			s.logger.Error("Ошибка записи в буфер обмена", zap.Error(err))
-			// Fallback на TypeStr если буфер обмена не работает
-			s.logger.Info("Fallback: используем TypeStr")
-			robotgo.TypeStr(text, delayMs)
-			return nil
-		}
-		
-		time.Sleep(100 * time.Millisecond) // Даем время на копирование
-		
-		// Вставляем через Cmd+V на macOS
-		robotgo.KeyToggle("command", "down")
-		time.Sleep(50 * time.Millisecond)
-		robotgo.KeyTap("v")
-		time.Sleep(50 * time.Millisecond)
-		robotgo.KeyToggle("command", "up")
-		time.Sleep(200 * time.Millisecond) // Даем время на вставку
-		
-		// Восстанавливаем старый буфер обмена (если был)
-		if oldClip != "" {
-			time.Sleep(100 * time.Millisecond)
-			robotgo.WriteAll(oldClip)
-		}
-		
-		s.logger.Info("✅ Текст введен через буфер обмена (macOS)", zap.String("text", text))
+		s.logger.Info("✅ Посимвольный ввод завершен на macOS")
 		return nil
 	}
 	
@@ -205,13 +153,20 @@ func (s *Service) typeTextViaClipboard(text string) error {
 	return nil
 }
 
-// typeTextCharByChar вводит текст посимвольно (более надежно на Windows)
+// typeTextCharByChar вводит текст посимвольно (более надежно на Windows и macOS)
 func (s *Service) typeTextCharByChar(text string, delayMs int) error {
-	s.logger.Debug("Ввод текста посимвольно", zap.Int("length", len(text)), zap.Int("delay_ms", delayMs))
+	s.logger.Debug("Ввод текста посимвольно", 
+		zap.Int("length", len(text)), 
+		zap.Int("delay_ms", delayMs),
+		zap.String("os", runtime.GOOS))
 	
-	// Убеждаемся, что есть минимальная задержка
+	// Убеждаемся, что есть минимальная задержка (больше для macOS)
 	if delayMs <= 0 {
-		delayMs = 50
+		if runtime.GOOS == "darwin" {
+			delayMs = 50 // Увеличена задержка для macOS
+		} else {
+			delayMs = 50
+		}
 	}
 	
 	for i, char := range text {
@@ -228,14 +183,24 @@ func (s *Service) typeTextCharByChar(text string, delayMs int) error {
 			robotgo.KeyTap("space")
 			s.logger.Debug("Введен символ: Space")
 		} else {
-			// Пробуем ввести символ через TypeStr (один символ)
-			robotgo.TypeStr(charStr, 0)
+			// Для macOS используем TypeStr с небольшой задержкой для каждого символа
+			if runtime.GOOS == "darwin" {
+				// Используем TypeStr с небольшой задержкой между символами
+				robotgo.TypeStr(charStr, 10) // Задержка 10мс для каждого символа
+			} else {
+				// Для других ОС используем TypeStr
+				robotgo.TypeStr(charStr, 0)
+			}
 			s.logger.Debug("Введен символ", zap.String("char", charStr), zap.Int("position", i+1), zap.Int("total", len(text)))
 		}
 		
-		// Задержка между символами (кроме последнего)
+		// Задержка между символами
+		// Для macOS делаем задержку даже после последнего символа для надежности
 		if i < len(text)-1 {
 			time.Sleep(time.Duration(delayMs) * time.Millisecond)
+		} else if runtime.GOOS == "darwin" {
+			// Небольшая задержка после последнего символа на macOS
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 	
@@ -362,11 +327,11 @@ func (s *Service) ClearInput() error {
 		// Это более надежно, чем тройной клик
 		s.logger.Debug("Выделение всего текста: Cmd+A")
 		robotgo.KeyToggle("command", "down")
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond) // Увеличена задержка для macOS
 		robotgo.KeyTap("a")
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond) // Увеличена задержка для macOS
 		robotgo.KeyToggle("command", "up")
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond) // Увеличена задержка для macOS
 	} else {
 		// Linux и другие ОС - используем Ctrl+A
 		s.logger.Debug("Выделение всего текста: Ctrl+A")
@@ -381,7 +346,12 @@ func (s *Service) ClearInput() error {
 	// Удаляем выделенный текст
 	s.logger.Debug("Удаление выделенного текста")
 	robotgo.KeyTap("delete")
-	time.Sleep(100 * time.Millisecond)
+	// Увеличена задержка после удаления для macOS
+	deleteDelay := 100 * time.Millisecond
+	if runtime.GOOS == "darwin" {
+		deleteDelay = 200 * time.Millisecond
+	}
+	time.Sleep(deleteDelay)
 	
 	return nil
 }
@@ -410,10 +380,12 @@ func (s *Service) InputAtCoordinates(x, y int, text string, options *InputOption
 	s.logger.Debug("Клик для установки фокуса", zap.String("os", runtime.GOOS))
 	robotgo.MouseClick("left", false)
 	
-	// Задержка для установки фокуса
-	focusDelay := 200 * time.Millisecond
+	// Задержка для установки фокуса (увеличена для macOS)
+	focusDelay := 300 * time.Millisecond // Увеличена базовая задержка
 	if runtime.GOOS == "windows" {
 		focusDelay = 300 * time.Millisecond
+	} else if runtime.GOOS == "darwin" {
+		focusDelay = 400 * time.Millisecond // Больше задержка на macOS
 	}
 	time.Sleep(focusDelay)
 	s.logger.Debug("Фокус установлен")
@@ -424,19 +396,23 @@ func (s *Service) InputAtCoordinates(x, y int, text string, options *InputOption
 		if err := s.ClearInput(); err != nil {
 			return fmt.Errorf("ошибка очистки: %w", err)
 		}
-		// Задержка после очистки (увеличена для надежности)
+		// Задержка после очистки (увеличена для надежности, особенно для macOS)
 		clearDelay := 200 * time.Millisecond
 		if runtime.GOOS == "windows" {
 			clearDelay = 300 * time.Millisecond // Больше задержка на Windows
+		} else if runtime.GOOS == "darwin" {
+			clearDelay = 400 * time.Millisecond // Еще больше задержка на macOS
 		}
 		time.Sleep(clearDelay)
 		s.logger.Debug("Поле очищено, готовы к вводу")
 	}
 	
-	// Дополнительная задержка перед вводом текста для гарантии фокуса
+	// Дополнительная задержка перед вводом текста для гарантии фокуса (увеличена для macOS)
 	preTypeDelay := 100 * time.Millisecond
 	if runtime.GOOS == "windows" {
 		preTypeDelay = 200 * time.Millisecond
+	} else if runtime.GOOS == "darwin" {
+		preTypeDelay = 300 * time.Millisecond // Больше задержка на macOS перед вводом
 	}
 	time.Sleep(preTypeDelay)
 	s.logger.Debug("Начинаем ввод текста")
@@ -479,10 +455,12 @@ func (s *Service) FillInputAndClickButton(inputX, inputY int, text string, butto
 	s.logger.Debug("Клик для установки фокуса на инпут", zap.String("os", runtime.GOOS))
 	robotgo.MouseClick("left", false)
 
-	// Задержка для установки фокуса
-	focusDelay := 200 * time.Millisecond
+	// Задержка для установки фокуса (увеличена для macOS)
+	focusDelay := 300 * time.Millisecond // Увеличена базовая задержка
 	if runtime.GOOS == "windows" {
 		focusDelay = 300 * time.Millisecond
+	} else if runtime.GOOS == "darwin" {
+		focusDelay = 400 * time.Millisecond // Больше задержка на macOS
 	}
 	time.Sleep(focusDelay)
 	s.logger.Debug("Фокус установлен на инпут")
@@ -493,19 +471,27 @@ func (s *Service) FillInputAndClickButton(inputX, inputY int, text string, butto
 		if err := s.ClearInput(); err != nil {
 			return fmt.Errorf("ошибка очистки: %w", err)
 		}
-		// Задержка после очистки (увеличена для надежности)
+		// Задержка после очистки (увеличена для надежности, особенно для macOS)
 		clearDelay := 200 * time.Millisecond
 		if runtime.GOOS == "windows" {
 			clearDelay = 300 * time.Millisecond // Больше задержка на Windows
+		} else if runtime.GOOS == "darwin" {
+			clearDelay = 400 * time.Millisecond // Еще больше задержка на macOS
 		}
 		time.Sleep(clearDelay)
 		s.logger.Debug("Поле очищено, готовы к вводу")
 	}
 
-	// Дополнительная задержка перед вводом текста для гарантии фокуса
+	// Дополнительная задержка перед вводом текста для гарантии фокуса (увеличена для macOS)
 	preTypeDelay := 100 * time.Millisecond
 	if runtime.GOOS == "windows" {
 		preTypeDelay = 200 * time.Millisecond
+	} else if runtime.GOOS == "darwin" {
+		preTypeDelay = 500 * time.Millisecond // Еще больше задержка на macOS перед вводом
+		// Дополнительный клик на macOS для гарантии фокуса
+		s.logger.Debug("Дополнительный клик для гарантии фокуса на macOS")
+		robotgo.MouseClick("left", false)
+		time.Sleep(200 * time.Millisecond)
 	}
 	time.Sleep(preTypeDelay)
 	s.logger.Debug("Начинаем ввод текста")

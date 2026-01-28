@@ -254,8 +254,8 @@ func (h *Handler) FillInputAndClick(c *gin.Context) {
 		return
 	}
 
-	// Задержка на 5 секунд в начале обработки
-	time.Sleep(5 * time.Second)
+	// Задержка на 4 секунды в начале обработки
+	time.Sleep(4 * time.Second)
 
 	if req.Button == "" {
 		req.Button = "left"
