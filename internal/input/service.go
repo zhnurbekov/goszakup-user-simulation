@@ -160,10 +160,12 @@ func (s *Service) typeTextCharByChar(text string, delayMs int) error {
 		zap.Int("delay_ms", delayMs),
 		zap.String("os", runtime.GOOS))
 	
-	// Убеждаемся, что есть минимальная задержка (больше для macOS)
+	// Убеждаемся, что есть минимальная задержка (больше для macOS и Windows)
 	if delayMs <= 0 {
 		if runtime.GOOS == "darwin" {
-			delayMs = 50 // Увеличена задержка для macOS
+			delayMs = 50 // Задержка для macOS
+		} else if runtime.GOOS == "windows" {
+			delayMs = 80 // Увеличена задержка для Windows (для модальных окон)
 		} else {
 			delayMs = 50
 		}
@@ -183,10 +185,13 @@ func (s *Service) typeTextCharByChar(text string, delayMs int) error {
 			robotgo.KeyTap("space")
 			s.logger.Debug("Введен символ: Space")
 		} else {
-			// Для macOS используем TypeStr с небольшой задержкой для каждого символа
+			// Для Windows и macOS используем TypeStr с задержкой для каждого символа
 			if runtime.GOOS == "darwin" {
 				// Используем TypeStr с небольшой задержкой между символами
 				robotgo.TypeStr(charStr, 10) // Задержка 10мс для каждого символа
+			} else if runtime.GOOS == "windows" {
+				// Для Windows используем TypeStr с задержкой для модальных окон
+				robotgo.TypeStr(charStr, 20) // Задержка 20мс для каждого символа на Windows
 			} else {
 				// Для других ОС используем TypeStr
 				robotgo.TypeStr(charStr, 0)
@@ -471,10 +476,10 @@ func (s *Service) FillInputAndClickButton(inputX, inputY int, text string, butto
 		if err := s.ClearInput(); err != nil {
 			return fmt.Errorf("ошибка очистки: %w", err)
 		}
-		// Задержка после очистки (увеличена для надежности, особенно для macOS)
+		// Задержка после очистки (увеличена для надежности, особенно для Windows и macOS)
 		clearDelay := 200 * time.Millisecond
 		if runtime.GOOS == "windows" {
-			clearDelay = 300 * time.Millisecond // Больше задержка на Windows
+			clearDelay = 500 * time.Millisecond // Увеличена задержка на Windows для модальных окон
 		} else if runtime.GOOS == "darwin" {
 			clearDelay = 400 * time.Millisecond // Еще больше задержка на macOS
 		}
@@ -482,10 +487,14 @@ func (s *Service) FillInputAndClickButton(inputX, inputY int, text string, butto
 		s.logger.Debug("Поле очищено, готовы к вводу")
 	}
 
-	// Дополнительная задержка перед вводом текста для гарантии фокуса (увеличена для macOS)
+	// Дополнительная задержка перед вводом текста для гарантии фокуса (увеличена для Windows и macOS)
 	preTypeDelay := 100 * time.Millisecond
 	if runtime.GOOS == "windows" {
-		preTypeDelay = 200 * time.Millisecond
+		preTypeDelay = 500 * time.Millisecond // Увеличена задержка для Windows (для модальных окон)
+		// Дополнительный клик на Windows для гарантии фокуса в модальном окне
+		s.logger.Debug("Дополнительный клик для гарантии фокуса на Windows (модальное окно)")
+		robotgo.MouseClick("left", false)
+		time.Sleep(300 * time.Millisecond)
 	} else if runtime.GOOS == "darwin" {
 		preTypeDelay = 500 * time.Millisecond // Еще больше задержка на macOS перед вводом
 		// Дополнительный клик на macOS для гарантии фокуса
