@@ -169,15 +169,12 @@ func (s *Service) typeTextCharByChar(text string, delayMs int) error {
 		zap.Int("delay_ms", delayMs),
 		zap.String("os", runtime.GOOS))
 	
-	// Убеждаемся, что есть минимальная задержка (больше для macOS и Windows)
+	// Убеждаемся, что есть достаточная задержка для стабильного ввода
 	if delayMs <= 0 {
-		if runtime.GOOS == "darwin" {
-			delayMs = 10 // Задержка для macOS
-		} else if runtime.GOOS == "windows" {
-			delayMs = 10 // Увеличена задержка для Windows (для модальных окон)
-		} else {
-			delayMs = 10
-		}
+		delayMs = 30
+	}
+	if runtime.GOOS == "windows" && delayMs < 50 {
+		delayMs = 50 // Минимум 50мс для Windows (модальные окна требуют больше времени)
 	}
 	
 	for i, char := range text {
@@ -200,7 +197,7 @@ func (s *Service) typeTextCharByChar(text string, delayMs int) error {
 				// Это работает в модальных окнах, где TypeStr может не работать
 				// Преобразуем rune в uint32 для UnicodeType
 				robotgo.UnicodeType(uint32(char))
-				// time.Sleep(50 * time.Millisecond) // Увеличена задержка после каждого символа для модальных окон
+				time.Sleep(30 * time.Millisecond) // Задержка после каждого символа для стабильности
 				s.logger.Debug("Введен символ через UnicodeType", zap.String("char", charStr), zap.Int("unicode", int(char)), zap.Int("position", i+1), zap.Int("total", len(text)))
 			} else if runtime.GOOS == "darwin" {
 				// Используем TypeStr с небольшой задержкой между символами
@@ -344,36 +341,35 @@ func (s *Service) ClearInput() error {
 		// На Windows используем Ctrl+A для выделения всего текста
 		s.logger.Debug("Выделение всего текста: Ctrl+A")
 		robotgo.KeyToggle("ctrl", "down")
-		time.Sleep(10 * time.Millisecond) // Минимальная задержка
+		time.Sleep(30 * time.Millisecond)
 		robotgo.KeyTap("a")
-		time.Sleep(10 * time.Millisecond) // Минимальная задержка
+		time.Sleep(30 * time.Millisecond)
 		robotgo.KeyToggle("ctrl", "up")
-		time.Sleep(20 * time.Millisecond) // Минимальная задержка
+		time.Sleep(50 * time.Millisecond)
 	} else if runtime.GOOS == "darwin" {
 		// На macOS используем Cmd+A для выделения всего текста
-		// Это более надежно, чем тройной клик
 		s.logger.Debug("Выделение всего текста: Cmd+A")
 		robotgo.KeyToggle("command", "down")
-		time.Sleep(10 * time.Millisecond) // Минимальная задержка
+		time.Sleep(30 * time.Millisecond)
 		robotgo.KeyTap("a")
-		time.Sleep(10 * time.Millisecond) // Минимальная задержка
+		time.Sleep(30 * time.Millisecond)
 		robotgo.KeyToggle("command", "up")
-		time.Sleep(20 * time.Millisecond) // Минимальная задержка
+		time.Sleep(50 * time.Millisecond)
 	} else {
 		// Linux и другие ОС - используем Ctrl+A
 		s.logger.Debug("Выделение всего текста: Ctrl+A")
 		robotgo.KeyToggle("ctrl", "down")
-		time.Sleep(10 * time.Millisecond) // Минимальная задержка
+		time.Sleep(30 * time.Millisecond)
 		robotgo.KeyTap("a")
-		time.Sleep(10 * time.Millisecond) // Минимальная задержка
+		time.Sleep(30 * time.Millisecond)
 		robotgo.KeyToggle("ctrl", "up")
-		time.Sleep(20 * time.Millisecond) // Минимальная задержка
+		time.Sleep(50 * time.Millisecond)
 	}
 	
 	// Удаляем выделенный текст
 	s.logger.Debug("Удаление выделенного текста")
 	robotgo.KeyTap("delete")
-	time.Sleep(20 * time.Millisecond) // Минимальная задержка
+	time.Sleep(50 * time.Millisecond)
 	
 	return nil
 }
@@ -471,14 +467,17 @@ func (s *Service) FillInputAndClickButton(inputX, inputY int, text string, butto
 
 	// Шаг 1: Наводим мышь на инпут
 	robotgo.MoveMouse(inputX, inputY)
-	time.Sleep(10 * time.Millisecond) // Минимальная задержка
+	time.Sleep(50 * time.Millisecond)
 
 	// Шаг 2: Устанавливаем фокус на поле ввода (клик)
 	s.logger.Debug("Клик для установки фокуса на инпут", zap.String("os", runtime.GOOS))
 	robotgo.MouseClick("left", false)
 
-	// Задержка для установки фокуса (минимальная)
-	focusDelay := 50 * time.Millisecond // Минимальная задержка
+	// Задержка для установки фокуса (увеличена для стабильности)
+	focusDelay := 150 * time.Millisecond
+	if runtime.GOOS == "windows" {
+		focusDelay = 200 * time.Millisecond // Модальные окна требуют больше времени
+	}
 	time.Sleep(focusDelay)
 	s.logger.Debug("Фокус установлен на инпут")
 
@@ -488,13 +487,12 @@ func (s *Service) FillInputAndClickButton(inputX, inputY int, text string, butto
 		if err := s.ClearInput(); err != nil {
 			return fmt.Errorf("ошибка очистки: %w", err)
 		}
-		// Задержка после очистки (минимальная)
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond) // Даем время на обработку
 		s.logger.Debug("Поле очищено, готовы к вводу")
 	}
 
-	// Минимальная задержка перед вводом текста
-	time.Sleep(50 * time.Millisecond)
+	// Задержка перед вводом текста (увеличена для стабильности)
+	time.Sleep(150 * time.Millisecond)
 	s.logger.Debug("Начинаем ввод текста")
 
 	// Шаг 4: Вводим текст
@@ -502,13 +500,13 @@ func (s *Service) FillInputAndClickButton(inputX, inputY int, text string, butto
 		return fmt.Errorf("ошибка ввода текста: %w", err)
 	}
 
-	// Задержка после ввода текста перед переходом к кнопке (минимальная)
-	time.Sleep(50 * time.Millisecond)
+	// Задержка после ввода текста перед переходом к кнопке
+	time.Sleep(100 * time.Millisecond)
 
 	// Шаг 5: Наводим мышь на кнопку
 	s.logger.Debug("Перемещение мыши на кнопку")
 	robotgo.MoveMouse(buttonX, buttonY)
-	time.Sleep(10 * time.Millisecond) // Минимальная задержка
+	time.Sleep(50 * time.Millisecond)
 
 	// Шаг 6: Кликаем по кнопке
 	s.logger.Debug("Клик по кнопке", zap.String("button", button))
