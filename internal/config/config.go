@@ -16,7 +16,7 @@ func Load() *Config {
 	_ = godotenv.Load()
 
 	cfg := &Config{
-		Port:        getEnv("PORT", "3000"),
+		Port:        getEnv("PORT", "3003"),
 		Environment: getEnv("ENVIRONMENT", "development"),
 	}
 
